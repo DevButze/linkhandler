@@ -23,6 +23,7 @@ namespace Aoe\Linkhandler\Browser;
 
 use \TYPO3\CMS\Core\ElementBrowser\ElementBrowserHookInterface;
 use \TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Core\Utility\VersionNumberUtility;
 
 /**
  * Hook to adjust linkwizard (linkbrowser).
@@ -170,6 +171,36 @@ class ElementBrowserHook implements ElementBrowserHookInterface {
 				$this->pObj->anchorTypes[] = $key;
 			}
 		}
+
+		if ($this->richTextEditorSupportsUserLinks()) {
+			$this->appendUserLinkJavascriptMethodToDocument();
+		}
+	}
+
+	/**
+	 * Checks if the used TYPO3 / RTE version includes support for user links.
+	 *
+	 * User link support has been dropped in TYPO3 version 7.4 / commit I592923f5c7218001d28f7aff3c2e48c1533b2d48.
+	 *
+	 * @return bool
+	 */
+	protected function richTextEditorSupportsUserLinks() {
+		return VersionNumberUtility::convertVersionNumberToInteger(TYPO3_branch) >= 7004000;
+	}
+
+	/**
+	 * Appends the link_spec javascript method to the document. This method is required by the linkhandler extension
+	 * but has been removed from TYPO3 version 7.4.
+	 */
+	protected function appendUserLinkJavascriptMethodToDocument() {
+		$this->pObj->doc->JScode .= '<script>function link_spec(theLink) {
+				if (document.ltargetform.anchor_title) browse_links_setTitle(document.ltargetform.anchor_title.value);
+				if (document.ltargetform.anchor_class) browse_links_setClass(document.ltargetform.anchor_class.value);
+				if (document.ltargetform.ltarget) browse_links_setTarget(document.ltargetform.ltarget.value);
+				browse_links_setAdditionalValue("data-htmlarea-external", "");
+				plugin.createLink(theLink,cur_target,cur_class,cur_title,additionalValues);
+				return false;
+			}</script>';
 	}
 
 	/**
