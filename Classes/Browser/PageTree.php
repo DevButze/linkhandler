@@ -60,4 +60,8 @@ class PageTree extends ElementBrowserPageTreeView {
 		$this->savePosition();
 	}
 
+	public function wrapTitle($title, $v) {
+		return parent::wrapTitle($title, $v, FALSE);
+	}
+
 }

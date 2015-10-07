@@ -21,197 +21,202 @@ namespace Aoe\Linkhandler\Browser;
  * The TYPO3 project - inspiring people to share!                         *
  *                                                                        */
 
+use Aoe\Linkhandler\ConfigurationManager;
+use Aoe\Linkhandler\Exception\LinkMetadataFormatException;
+use Aoe\Linkhandler\LinkMetadata;
+use TYPO3\CMS\Backend\FrontendBackendUserAuthentication;
+use TYPO3\CMS\Backend\Utility\BackendUtility;
 use \TYPO3\CMS\Core\ElementBrowser\ElementBrowserHookInterface;
 use \TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\VersionNumberUtility;
+use TYPO3\CMS\Lang\LanguageService;
+use TYPO3\CMS\Rtehtmlarea\BrowseLinks;
 
 /**
- * Hook to adjust linkwizard (linkbrowser).
- *
- * @author Daniel Pötzinger <daniel.poetzinger@aoemedia.de>
+ * @author Thorsten Boock <tboock@codegy.de>
  * @author Alexander Stehlik <astehlik.deleteme@intera.de>
+ * @author Daniel Pötzinger <daniel.poetzinger@aoemedia.de>
+ *
+ * Note: type hinting is not possible for interface methods, because ElementBrowserHookInterface is broken.
  */
 class ElementBrowserHook implements ElementBrowserHookInterface {
 
 	/**
-	 * @var \TYPO3\CMS\Backend\FrontendBackendUserAuthentication
+	 * @var FrontendBackendUserAuthentication
 	 */
-	protected $backendUserAuth;
+	protected $backendUserAuthentication;
 
 	/**
-	 * @var \Aoe\Linkhandler\ConfigurationManager
+	 * @var ConfigurationManager
 	 */
 	protected $configurationManager;
 
 	/**
-	 * @var \TYPO3\CMS\Lang\LanguageService
+	 * @var LanguageService
 	 */
 	protected $languageService;
 
 	/**
-	 * the browse_links object
-	 *
-	 * @var \TYPO3\CMS\Rtehtmlarea\BrowseLinks
+	 * @var BrowseLinks
 	 */
-	protected $pObj;
+	protected $browseLinks;
 
 	/**
-	 * @var \Aoe\Linkhandler\Browser\TabHandlerFactory
-	 */
-	protected $tabHandlerFactory;
-
-	/**
-	 * Configurations for the different tabs, array key is the
-	 * configuration key.
+	 * Configuration settings for different anchor types.
+	 * These settings are retrieved from the PageTS configuration (mod.tx_linkhandler).
 	 *
 	 * @var array
 	 */
-	protected $tabsConfig;
+	protected $anchorTypeSettings;
 
 	/**
 	 * Initializes global objects
 	 */
 	public function __construct() {
-		$this->backendUserAuth = $GLOBALS['BE_USER'];
+		$this->backendUserAuthentication = $GLOBALS['BE_USER'];
 		$this->languageService = $GLOBALS['LANG'];
-		$this->configurationManager = GeneralUtility::makeInstance('Aoe\\Linkhandler\\ConfigurationManager');
-		$this->tabHandlerFactory = GeneralUtility::makeInstance('Aoe\\Linkhandler\\Browser\\TabHandlerFactory');
-	}
-
-	/**
-	 * Adds new items to the currently allowed ones and returns them
-	 *
-	 * @param array $allowedItems currently allowed items
-	 * @return array currently allowed items plus added items
-	 */
-	public function addAllowedItems($allowedItems) {
-
-		foreach ($this->configurationManager->getTabsConfiguration() as $name => $tabConfig) {
-			$allowedItems[] = $name;
-		}
-
-		return $allowedItems;
-	}
-
-	/**
-	 * Returns current pageid
-	 *
-	 * @return int
-	 */
-	public function getCurrentPageId() {
-		if ($this->isRTE()) {
-			$confParts = explode(':', $this->pObj->RTEtsConfigParams);
-			return $confParts[5];
-		} else {
-			return NULL;
-		}
-	}
-
-	/**
-	 * Get current href value (diffrent for RTE and normal browselinks)
-	 *
-	 * @return string
-	 */
-	public function getCurrentValue() {
-
-		if ($this->isRTE()) {
-			$currentValue = $this->pObj->curUrlInfo['value'];
-		} else {
-			$currentValue = $this->pObj->P['currentValue'];
-		}
-
-		return $currentValue;
-	}
-
-	/**
-	 * @return \TYPO3\CMS\Rtehtmlarea\BrowseLinks
-	 */
-	public function getElementBrowser() {
-		return $this->pObj;
-	}
-
-	/**
-	 * Returns a new tab for the browse links wizard. Will be called
-	 * by the parent link browser.
-	 *
-	 * @param string $activeTab current link selector action
-	 * @return string a tab for the selected link action
-	 */
-	public function getTab($activeTab) {
-
-		$configuration = $this->configurationManager->getSingleTabConfiguration($activeTab);
-
-		if (!is_array($configuration)) {
-			return FALSE;
-		}
-
-		$tabHandler = $this->tabHandlerFactory->createTabHandler($configuration, $activeTab, $this);
-		$content = $tabHandler->getTabContent();
-
-		return $content;
+		$this->configurationManager = GeneralUtility::makeInstance(ConfigurationManager::class);
 	}
 
 	/**
 	 * Initializes the hook object
 	 *
-	 * @param \TYPO3\CMS\Rtehtmlarea\BrowseLinks $pObj browse_links object
+	 * @param \TYPO3\CMS\Rtehtmlarea\BrowseLinks $browseLinks
 	 * @param array $params
-	 * @return void
 	 */
-	public function init($pObj, $params) {
+	public function init($browseLinks, $params) {
+		$this->browseLinks = $browseLinks;
+		$this->initializeAnchorSettings();
 
-		$this->pObj = $pObj;
-
-		$currentPid = $this->getCurrentPageId();
-		$activeConfiguration = is_array($this->pObj->thisConfig['tx_linkhandler.']) ? $this->pObj->thisConfig['tx_linkhandler.'] : NULL;
-		$this->configurationManager->loadConfiguration($activeConfiguration, $currentPid);
-
-		if ($this->isRTE()) {
-			foreach ($this->configurationManager->getTabsConfiguration() as $key => $tabConfig) {
-				$this->pObj->anchorTypes[] = $key;
-			}
-		}
-
-		if ($this->richTextEditorSupportsUserLinks()) {
+		if (!$this->richTextEditorSupportsUserLinks()) {
 			$this->appendUserLinkJavascriptMethodToDocument();
 		}
 	}
 
 	/**
+	 * Retrieves the anchor settings from the PageTS configuration.
+	 */
+	protected function initializeAnchorSettings() {
+		$pageUid = $this->getCurrentPageUid();
+		$this->configurationManager->loadConfiguration(NULL, $pageUid);
+		$this->anchorTypeSettings = $this->configurationManager->getTabsConfiguration();
+	}
+
+	/**
+	 * @return int|NULL
+	 */
+	private function getCurrentPageUid() {
+		if ($this->isEmbeddedInRichTextEditor()) {
+			$confParts = explode(':', $this->browseLinks->RTEtsConfigParams);
+			return $confParts[5];
+		}
+
+		return NULL;
+	}
+
+	/**
+	 * Determines whether the element browser was opened from a rich text editor.
+	 */
+	public function isEmbeddedInRichTextEditor() {
+		return $this->browseLinks->mode === 'rte';
+	}
+
+	/**
 	 * Checks if the used TYPO3 / RTE version includes support for user links.
-	 *
-	 * User link support has been dropped in TYPO3 version 7.4 / commit I592923f5c7218001d28f7aff3c2e48c1533b2d48.
+	 * User link support has been dropped in TYPO3 version 7.4.
 	 *
 	 * @return bool
 	 */
-	protected function richTextEditorSupportsUserLinks() {
-		return VersionNumberUtility::convertVersionNumberToInteger(TYPO3_branch) >= 7004000;
+	private function richTextEditorSupportsUserLinks() {
+		return VersionNumberUtility::convertVersionNumberToInteger(TYPO3_branch) <= 7004000;
 	}
 
 	/**
 	 * Appends the link_spec javascript method to the document. This method is required by the linkhandler extension
 	 * but has been removed from TYPO3 version 7.4.
 	 */
-	protected function appendUserLinkJavascriptMethodToDocument() {
-		$this->pObj->doc->JScode .= '<script>function link_spec(theLink) {
-				if (document.ltargetform.anchor_title) browse_links_setTitle(document.ltargetform.anchor_title.value);
-				if (document.ltargetform.anchor_class) browse_links_setClass(document.ltargetform.anchor_class.value);
-				if (document.ltargetform.ltarget) browse_links_setTarget(document.ltargetform.ltarget.value);
-				browse_links_setAdditionalValue("data-htmlarea-external", "");
-				plugin.createLink(theLink,cur_target,cur_class,cur_title,additionalValues);
-				return false;
-			}</script>';
+	private function appendUserLinkJavascriptMethodToDocument() {
+		// note: crappy old javascript code was copy pasted from the TYPO3 core
+		$this->browseLinks->doc->JScode .= '
+			<script>
+				function link_spec(theLink) {
+					if (document.ltargetform.anchor_title) browse_links_setTitle(document.ltargetform.anchor_title.value);
+					if (document.ltargetform.anchor_class) browse_links_setClass(document.ltargetform.anchor_class.value);
+					if (document.ltargetform.ltarget) browse_links_setTarget(document.ltargetform.ltarget.value);
+					browse_links_setAdditionalValue("data-htmlarea-external", "");
+					plugin.createLink(theLink,cur_target,cur_class,cur_title,additionalValues);
+					return false;
+				}
+			</script>
+			';
 	}
 
 	/**
-	 * Returns if the current linkwizard is RTE or not
+	 * Adds additional items to the passed list of allowed items.
+	 *
+	 * @param array $allowedItems currently allowed items
+	 * @return array currently allowed items plus added items
 	 */
-	public function isRTE() {
-		if ($this->pObj->mode == 'rte') {
-			return TRUE;
+	public function addAllowedItems($allowedItems) {
+		$configuredAnchorTypes = array_keys($this->anchorTypeSettings);
+		$allowedItems = array_merge($allowedItems, $configuredAnchorTypes);
+		return $allowedItems;
+	}
+
+	/**
+	 * Returns the current link target (different for RTE and normal "browselinks" (WTF?!))
+	 *
+	 * @return string
+	 */
+	public function getCurrentValue() {
+		if ($this->isEmbeddedInRichTextEditor()) {
+			$value = $this->browseLinks->curUrlInfo['value'];
 		} else {
-			return FALSE;
+			$value = $this->browseLinks->P['currentValue'];
 		}
+
+		return $value;
+	}
+
+	/**
+	 * @return BrowseLinks
+	 */
+	public function getBrowseLinks() {
+		return $this->browseLinks;
+	}
+
+	/**
+	 * Returns a new tab for the browse links wizard. Will be called
+	 * by the parent link browser.
+	 *
+	 * @param string $anchorType current link selector action
+	 * @return string a tab for the selected link action
+	 * @throws \Exception if the active tab was not configured
+	 */
+	public function getTab($anchorType) {
+		$elementBrowser = $this->buildElementBrowser($anchorType);
+		$content = $this->isEmbeddedInRichTextEditor() ? $this->browseLinks->addAttributesForm() : '';
+		$content .= $elementBrowser->renderContent();
+		return $content;
+	}
+
+	/**
+	 * @param string $anchorType
+	 * @return ElementBrowser
+	 * @throws \Exception if the passed anchor type was not configured
+	 */
+	protected function buildElementBrowser($anchorType) {
+		$configuration = $this->configurationManager->getSingleTabConfiguration($anchorType);
+
+		if ($configuration === NULL) {
+			throw new \Exception('Missing configuration for anchor type ' . $anchorType . '.', 1444211551);
+		}
+
+		/** @var ElementBrowser $elementBrowser */
+		$elementBrowser = GeneralUtility::makeInstance(ElementBrowser::class, $this->browseLinks, $configuration);
+		$elementBrowser->init();
+
+		return $elementBrowser;
 	}
 
 	/**
@@ -221,17 +226,30 @@ class ElementBrowserHook implements ElementBrowserHookInterface {
 	 * @return array modified menu definition
 	 */
 	public function modifyMenuDefinition($menuDef) {
+		$currentScriptUrlWithTrailingParameterSeparator = $this->getCurrentScriptUrlWithTrailingParameterSeparator();
 
-		$tabs = $this->configurationManager->getTabsConfiguration();
+		foreach ($this->anchorTypeSettings as $anchorType => $configuration) {
+			$escapedTabUrl = GeneralUtility::quoteJSvalue($currentScriptUrlWithTrailingParameterSeparator . 'act=' . $anchorType);
 
-		foreach ($tabs as $key => $tabConfig) {
-			$menuDef[$key]['isActive'] = $this->pObj->act == $key;
-			$menuDef[$key]['label'] = $this->languageService->sL($tabConfig['label'], TRUE);
-			$menuDef[$key]['url'] = '#';
-			$menuDef[$key]['addParams'] = 'onclick="jumpToUrl(' . GeneralUtility::quoteJSvalue($this->getThisScript() . 'act=' . $key) . ');return false;"';
+			$menuDef[$anchorType]['isActive'] = $this->browseLinks->act === $anchorType;
+			$menuDef[$anchorType]['label'] = $this->languageService->sL($configuration['label'], TRUE);
+			$menuDef[$anchorType]['url'] = '#';
+			$menuDef[$anchorType]['addParams'] = 'onclick="jumpToUrl(' . $escapedTabUrl . ');return false;"';
 		}
 
 		return $menuDef;
+	}
+
+	/**
+	 * Returns the URL to the current script and a trailing ? or & so that
+	 * a new URL parameter can be appended.
+	 *
+	 * @return string
+	 */
+	private function getCurrentScriptUrlWithTrailingParameterSeparator() {
+		$separator = strpos($this->browseLinks->thisScript, '?') === FALSE ? '?' : '&';
+		$currentScriptUrlWithTrailingParameterSeparator = $this->browseLinks->thisScript . $separator;
+		return $currentScriptUrlWithTrailingParameterSeparator;
 	}
 
 	/**
@@ -245,32 +263,62 @@ class ElementBrowserHook implements ElementBrowserHookInterface {
 	 * @return array $info a infoarray for browser to tell them what is current active tab
 	 */
 	public function parseCurrentUrl($href, $siteUrl, $info) {
-
 		// Depending on link and setup the href string can contain complete absolute link
-		if (substr($href, 0, 7) == 'http://') {
+		if (substr($href, 0, 7) === 'http://') {
 			if ($_href = strstr($href, '?id=')) {
 				$href = substr($_href, 4);
 			} else {
-				$href = substr(strrchr($href, "/"), 1);
+				$href = substr(strrchr($href, '/'), 1);
 			}
 		}
 
-		$newInfo = $this->tabHandlerFactory->getLinkInfoArrayFromMatchingHandler($href);
-		$info = array_merge($info, $newInfo);
+		try {
+			$modifiedInfo = $this->buildLinkInfo($href);
+			$info = array_merge($info, $modifiedInfo);
+		} catch (LinkMetadataFormatException $exception) {
+			// do not modify the passed info array if passed metadata could not be processed
+		}
 
 		return $info;
 	}
 
 	/**
-	 * Returns the URL to the current script and a trailing ? or & so that
-	 * a new URL parameter can be appended.
-	 *
-	 * TODO: remove this when https://review.typo3.org/28337/ is merged.
-	 *
-	 * @return string
-	 * @see \TYPO3\CMS\Rtehtmlarea\BrowseLinks::getThisScript()
+	 * @param string $href
+	 * @return array
 	 */
-	public function getThisScript() {
-		return strpos($this->pObj->thisScript, '?') === FALSE ? $this->pObj->thisScript . '?' : $this->pObj->thisScript . '&';
+	protected function buildLinkInfo($href) {
+		$linkMetadata = new LinkMetadata($href);
+		$databaseTable = $linkMetadata->getDatabaseTable();
+		$recordUid = $linkMetadata->getRecordUid();
+		$info = [
+			'act' => $linkMetadata->getAnchorType(),
+			'recordTable' => $databaseTable,
+			'recordUid' => $recordUid,
+			'info' => $this->buildLinkLabel($databaseTable, $recordUid)
+		];
+		return $info;
 	}
+
+	/**
+	 * @param string $databaseTable
+	 * @param int $recordUid
+	 * @return string
+	 */
+	protected function buildLinkLabel($databaseTable, $recordUid) {
+		$linkLabel = '';
+		$record = BackendUtility::getRecord($databaseTable, $recordUid);
+
+		if (isset($GLOBALS['TCA'][$databaseTable]['ctrl']['title'])) {
+			$labelIdentifier = $GLOBALS['TCA'][$databaseTable]['ctrl']['title'];
+			$linkLabel = $this->languageService->sL($labelIdentifier);
+		}
+
+		if ($record !== NULL) {
+			$recordLabel = BackendUtility::getRecordTitle($databaseTable, $record);
+			$linkLabel .= ': ' . $recordLabel;
+		}
+
+		return $linkLabel;
+	}
+
 }

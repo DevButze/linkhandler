@@ -66,40 +66,28 @@ class SoftReferenceHandler {
 	public function setTypoLinkPartsElement($linkHandlerFound, $tLP, $content, $elements, $idx, $tokenID, $softReferenceIndex) {
 
 		if ($tLP['LINK_TYPE'] === 'linkhandler') {
-
-			$linkInfo = $this->getTabHandlerFactory()->getLinkInfoArrayFromMatchingHandler($tLP['url']);
-
-			if (count($linkInfo)) {
-				$content = $this->setTypoLinkPartsElementForLinkhandler($linkInfo, $elements, $idx, $tokenID, $content);
-				$linkHandlerFound = TRUE;
-			}
+			$linkMetadata = new LinkMetadata($tLP['url']);
+			$content = $this->setTypoLinkPartsElementForLinkhandler($linkMetadata, $elements, $idx, $tokenID, $content);
 		}
 
-		return array($linkHandlerFound, $tLP, $content, $elements, $idx, $tokenID, $softReferenceIndex);
-	}
-
-	/**
-	 * @return \Aoe\Linkhandler\Browser\TabHandlerFactory
-	 */
-	protected function getTabHandlerFactory() {
-		return GeneralUtility::makeInstance('Aoe\\Linkhandler\\Browser\\TabHandlerFactory');
+		return array(TRUE, $tLP, $content, $elements, $idx, $tokenID, $softReferenceIndex);
 	}
 
 	/**
 	 * Generates the SoftReferenceIndex data.
 	 *
-	 * @param array $linkInfo Link information provied by the matching tab handler.
+	 * @param LinkMetadata
 	 * @param string $content The content to process.
 	 * @param array $elements Reference to the array of elements to be modified with substitution / information entries.
 	 * @param string $idx Index value of the found element - user to make unique but stable tokenID
 	 * @param string $tokenID Unique identifyer for a link of an record
 	 * @return string
 	 */
-	protected function setTypoLinkPartsElementForLinkhandler($linkInfo, &$elements, $idx, $tokenID, $content) {
+	protected function setTypoLinkPartsElementForLinkhandler(LinkMetadata $linkMetadata, array &$elements, $idx, $tokenID, $content) {
 
 		$elements[$tokenID . ':' . $idx]['subst'] = array(
 			'type' => 'db',
-			'recordRef' => $linkInfo['recordTable'] . ':' . $linkInfo['recordUid'],
+			'recordRef' => $linkMetadata->getDatabaseTable() . ':' . $linkMetadata->getRecordUid(),
 			'tokenID' => $tokenID,
 			'tokenValue' => $content
 		);

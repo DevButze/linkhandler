@@ -21,6 +21,8 @@ namespace Aoe\Linkhandler\Linkvalidator;
  * The TYPO3 project - inspiring people to share!                         *
  *                                                                        */
 
+use Aoe\Linkhandler\Exception\LinkMetadataFormatException;
+use Aoe\Linkhandler\LinkMetadata;
 use TYPO3\CMS\Linkvalidator\Linktype\AbstractLinktype;
 use TYPO3\CMS\Backend\Utility\BackendUtility;
 
@@ -74,13 +76,6 @@ class LinkhandlerLinkType extends AbstractLinktype {
 	protected $reportHiddenRecords;
 
 	/**
-	 * Tab handler factory for retrieving link information.
-	 *
-	 * @var \Aoe\Linkhandler\Browser\TabHandlerFactory
-	 */
-	protected $tabHandlerFactory;
-
-	/**
 	 * Checks a given URL for validity
 	 *
 	 * @param string $url Url to check
@@ -94,13 +89,14 @@ class LinkhandlerLinkType extends AbstractLinktype {
 		$errorParams = array();
 		$this->initializeRequiredClasses();
 
-		$linkInfo = $this->tabHandlerFactory->getLinkInfoArrayFromMatchingHandler($url);
-		if (empty($linkInfo)) {
+		try {
+			$linkMetadata = new LinkMetadata($url);
+		} catch (LinkMetadataFormatException $exception) {
 			return TRUE;
 		}
 
-		$tableName = $linkInfo['recordTable'];
-		$rowid = $linkInfo['recordUid'];
+		$tableName = $linkMetadata->getDatabaseTable();
+		$rowid = $linkMetadata->getRecordUid();
 		$row = NULL;
 		$tsConfig = $reference->getTSConfig();
 		$this->reportHiddenRecords = (bool)$tsConfig['tx_linkhandler.']['reportHiddenRecords'];
@@ -250,10 +246,6 @@ class LinkhandlerLinkType extends AbstractLinktype {
 	 * Initializes all required classes if required.
 	 */
 	protected function initializeRequiredClasses() {
-		if (isset($this->tabHandlerFactory)) {
-			return;
-		}
-		$this->tabHandlerFactory = \TYPO3\CMS\Core\Utility\GeneralUtility::makeInstance('Aoe\\Linkhandler\\Browser\\TabHandlerFactory');
 		$this->languageService = $GLOBALS['LANG'];
 		$this->databaseConnection = $GLOBALS['TYPO3_DB'];
 	}

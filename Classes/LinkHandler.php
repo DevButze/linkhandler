@@ -111,11 +111,6 @@ class LinkHandler implements SingletonInterface {
 	protected $tabConfiguration;
 
 	/**
-	 * @var \Aoe\Linkhandler\Browser\TabHandlerFactory
-	 */
-	protected $tabHandlerFactory;
-
-	/**
 	 * @var \TYPO3\CMS\Frontend\Controller\TypoScriptFrontendController
 	 */
 	protected $tsfe;
@@ -123,7 +118,6 @@ class LinkHandler implements SingletonInterface {
 
 	public function __construct() {
 		$this->tsfe = $GLOBALS['TSFE'];
-		$this->tabHandlerFactory = \TYPO3\CMS\Core\Utility\GeneralUtility::makeInstance('Aoe\\Linkhandler\\Browser\\TabHandlerFactory');
 		$this->localContentObjectRenderer = \TYPO3\CMS\Core\Utility\GeneralUtility::makeInstance('TYPO3\\CMS\\Frontend\\ContentObject\\ContentObjectRenderer');
 	}
 
@@ -163,16 +157,10 @@ class LinkHandler implements SingletonInterface {
 	 * @return string
 	 */
 	protected function generateLink() {
-
-		$linkInfo = $this->tabHandlerFactory->getLinkInfoArrayFromMatchingHandler($this->linkHandlerKey);
-
-		if (!count($linkInfo)) {
-			throw new \Exception(sprintf('No matching tab handler could be found for link handler key %s.', $this->linkHandlerKey));
-		}
-
-		$this->configurationKey = $linkInfo['act'];
-		$this->recordTableName = $linkInfo['recordTable'];
-		$this->recordUid = $linkInfo['recordUid'];
+		$linkMetadata = new LinkMetadata($this->linkHandlerKey);
+		$this->configurationKey = $linkMetadata->getAnchorType();
+		$this->recordTableName = $linkMetadata->getDatabaseTable();
+		$this->recordUid = $linkMetadata->getRecordUid();
 		$this->initRecord();
 
 		if (!is_array($this->tabConfiguration)) {

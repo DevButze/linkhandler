@@ -55,32 +55,10 @@ class ConfigurationManager implements \TYPO3\CMS\Core\SingletonInterface {
 	protected $tabsConfiguration = NULL;
 
 	/**
-	 * Returns a array of names available tx_linkhandler_tabHandler
-	 *
-	 * @return array
-	 */
-	public function getAllRegisteredTabHandlerClassnames() {
-
-		if (!isset($this->tabHandlerClassnames)) {
-
-			$this->tabHandlerClassnames = array('Aoe\\Linkhandler\\Browser\\TabHandler');
-
-			if (is_array($GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['linkhandler/class.tx_linkhandler_browselinkshooks.php'])) {
-				foreach ($GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['linkhandler/class.tx_linkhandler_browselinkshooks.php'] as $tabHandler) {
-					list(, $class) = \TYPO3\CMS\Core\Utility\GeneralUtility::revExplode(':', $tabHandler, 2);
-					$this->tabHandlerClassnames[] = $class;
-				}
-			}
-		}
-
-		return $this->tabHandlerClassnames;
-	}
-
-	/**
 	 * Returns config for a single tab.
 	 *
 	 * @param string $tabKey
-	 * @return array
+	 * @return array|NULL
 	 */
 	public function getSingleTabConfiguration($tabKey) {
 
